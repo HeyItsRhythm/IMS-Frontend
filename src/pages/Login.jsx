@@ -13,8 +13,9 @@ export default function Login() {
   const [userOtp, setUserOtp] = useState('');
   const [pendingUser, setPendingUser] = useState(null);
   
-  const { login, finalizeLogin, verifyUserEmail } = useAuth();
+  const { login, finalizeLogin, verifyUserEmail, token } = useAuth();
   const navigate = useNavigate();
+  const savedStudentProfile = JSON.parse(localStorage.getItem('ims_studentProfile') || 'null');
 
   const handleCredentialsSubmit = async (e) => {
     e.preventDefault();
@@ -34,9 +35,9 @@ export default function Login() {
       setPendingUser(user);
 
       // --- EMAILJS CONFIGURATION ---
-      const SERVICE_ID = 'service_foh4x9q';
-      const TEMPLATE_ID = 'template_j43olo7';
-      const PUBLIC_KEY = 'F6xajPiLsbCrWQRL8';
+      const SERVICE_ID = 'service_f8lquk8';
+      const TEMPLATE_ID = 'template_t3vk7uu';
+      const PUBLIC_KEY = '-c6vzS6kgWs4oVRJX';
 
       try {
         await emailjs.send(SERVICE_ID, TEMPLATE_ID, {
@@ -59,15 +60,16 @@ export default function Login() {
   const handleOtpSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    if (userOtp === generatedOtp) {
+    if (userOtp.trim() === generatedOtp.trim()) {
       try {
         await verifyUserEmail(pendingUser.id);
         const verifiedUser = { ...pendingUser, isVerified: true };
-        finalizeLogin(verifiedUser);
+        finalizeLogin(verifiedUser, token);
         navigate('/');
       } catch (err) {
-        setError('Error verifying email. Please try again.');
-        console.error(err);
+        const message = err?.message || err || 'Error verifying email. Please try again.';
+        setError(`Verification failed: ${message}`);
+        console.error('verifyUserEmail error', err);
       }
     } else {
       setError('Invalid OTP code. Please try again.');
@@ -114,6 +116,7 @@ export default function Login() {
               <p>Admin: admin@system.com / admin123</p>
               <p>(Or register newly as Student/Company)</p>
             </div>
+        
           </>
         ) : (
           <>

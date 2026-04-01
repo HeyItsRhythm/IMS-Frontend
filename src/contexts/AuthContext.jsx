@@ -1,109 +1,99 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { collection, query, where, getDocs, addDoc, updateDoc, doc } from 'firebase/firestore';
-import { db } from '../firebase';
 
 const AuthContext = createContext();
+
+const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:5000';
 
 export const useAuth = () => useContext(AuthContext);
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
+  const [token, setToken] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Maintain local session persistence
   useEffect(() => {
-    const storedUser = localStorage.getItem('internship_auth_user');
-    if (storedUser) {
+    const storedUser = localStorage.getItem('ims_user');
+    const storedToken = localStorage.getItem('ims_token');
+    if (storedUser && storedToken) {
       setUser(JSON.parse(storedUser));
+      setToken(storedToken);
     }
     setLoading(false);
   }, []);
 
   const login = async (email, password) => {
-    try {
-      if (email === 'admin@system.com' && password === 'admin123') {
-        const adminUser = { id: 'admin1', name: 'System Admin', email: 'admin@system.com', role: 'admin' };
-        setUser(adminUser);
-        localStorage.setItem('internship_auth_user', JSON.stringify(adminUser));
-        return adminUser;
-      }
+    const res = await fetch(`${API_BASE}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Login failed');
 
-      const emailQuery = query(collection(db, 'users'), where("email", "==", email));
-      const emailSnapshot = await getDocs(emailQuery);
-
-      if (emailSnapshot.empty) {
-        throw new Error('Please register first. No account found with this email.');
-      }
-
-      const doc = emailSnapshot.docs[0];
-      if (doc.data().password !== password) {
-        throw new Error('Invalid email or password');
-      }
-
-      const { password: _, ...userWithoutPassword } = { id: doc.id, ...doc.data() };
-      return userWithoutPassword;
-    } catch (error) {
-      throw new Error(error.message);
-    }
+    setUser(data.user);
+    setToken(data.token);
+    localStorage.setItem('ims_user', JSON.stringify(data.user));
+    localStorage.setItem('ims_token', data.token);
+    return data.user;
   };
 
   const register = async (userData) => {
-    try {
-      // --- Access Control for Company Role ---
-      const AUTHORIZED_COMPANY_EMAILS = [
-        'ridhampatel0510@email.com',
-        'katrodiyadharm@gmail.com',
-        'shahbhavya477@gmail.com'
-      ];
-
-      if (userData.role === 'company' && !AUTHORIZED_COMPANY_EMAILS.includes(userData.email)) {
-        throw new Error('Unauthorized: This email is not approved for Company access.');
-      }
-
-      const q = query(collection(db, 'users'), where("email", "==", userData.email));
-      const querySnapshot = await getDocs(q);
-      
-      if (!querySnapshot.empty) {
-        throw new Error('Email already exists');
-      }
-
-      const newUser = {
-        ...userData,
-        isVerified: false,
-        createdAt: new Date().toISOString()
-      };
-
-      const docRef = await addDoc(collection(db, 'users'), newUser);
-      const { password, ...userWithoutPassword } = { id: docRef.id, ...newUser };
-      
-      // Do not set user session here to enforce OTP at login
-      return userWithoutPassword;
-    } catch (error) {
-      throw new Error(error.message);
-    }
-  };
-
-  const logout = () => {
-    localStorage.removeItem('internship_auth_user');
-    window.location.href = '/login'; 
+    const res = await fetch(`${API_BASE}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(userData)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Registration failed');
+    return data;
   };
 
   const verifyUserEmail = async (userId) => {
-    await updateDoc(doc(db, 'users', userId), { isVerified: true });
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/verify/${userId}`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message || 'Email verification failed');
+      }
+
+      if (user && user.id === userId) {
+        const updated = { ...user, isVerified: true };
+        setUser(updated);
+        localStorage.setItem('ims_user', JSON.stringify(updated));
+      }
+
+      return data;
+    } catch (error) {
+      console.error('verifyUserEmail failed:', error);
+      throw new Error(error.message || 'Email verification failed');
+    }
   };
 
-  const finalizeLogin = (userObj) => {
+  const finalizeLogin = (userObj, tokenValue) => {
+    const valueToken = tokenValue || localStorage.getItem('ims_token') || token;
     setUser(userObj);
-    localStorage.setItem('internship_auth_user', JSON.stringify(userObj));
+    setToken(valueToken);
+    localStorage.setItem('ims_user', JSON.stringify(userObj));
+    if (valueToken) localStorage.setItem('ims_token', valueToken);
+  };
+
+  const logout = () => {
+    setUser(null);
+    setToken(null);
+    localStorage.removeItem('ims_user');
+    localStorage.removeItem('ims_token');
+    // keep ims_studentProfile to allow profile preview after logout
+    window.location.href = '/login';
   };
 
   const value = {
     user,
+    token,
     loading,
     login,
     verifyUserEmail,
-    finalizeLogin,
     register,
+    finalizeLogin,
     logout,
     isAuthenticated: !!user
   };
